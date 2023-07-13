@@ -55,6 +55,7 @@ class Waves {
         double *cfScan = nullptr;
         int nCfScan = -1;
         double pkCutMin = -1;
+        double lowPass = -1;
 
         UShort_t **waves = nullptr;
         // TBranch **waveBranches = nullptr; 
