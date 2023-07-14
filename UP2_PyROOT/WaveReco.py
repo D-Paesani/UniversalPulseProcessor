@@ -59,6 +59,7 @@ class WaveReco:
             self.bRngSam = np.array(np.array(bRng, dtype=float) / self.digi.tBin, dtype=int)
             self.qRngSam = np.array(np.array(qRng, dtype=float) / self.digi.tBin, dtype=int)
             self.spRngSam = np.array(np.array(spRng, dtype=float) / self.digi.tBin, dtype=int)
+            self.specSaved = 0
 
         def BookOutput(self, tout: ROOT.TTree):
             
@@ -219,34 +220,50 @@ class WaveReco:
                     if (box.saveW): box.b_wave[iwave][:] = wave
                     if (box.cfScan != None): box.b_cfscan[iwave][:] = np.array([fwspline.GetX(peak*icf) for icf in box.cfScan])       
 
-                    if (savedSpecs < self.specsToSave):
-                        savedSpecs +=1
+                    if (box.specSaved < self.specsToSave):
+                        riset = fwspline.GetX(0.9*peak) - fwspline.GetX(0.1*peak)
+                        box.specSaved +=1
                         self.anaFile.mkdir("specimens", "", 1).mkdir(box.outNam,"", 1).cd()
                         title = F"ev{ientry}_{box.outNam}{iwave}"
                         cc = ROOT.TCanvas(title)
+                        
                         if box.lowPass != None: 
                             cc.Divide(1,2)
                             cc.cd(2)
                             graraw = ROOT.TGraphErrors(wsize, wtime, (np.add(wave_raw, -bline)).astype(np.float32), wzeros, np.multiply(wones, brms))
                             graraw.SetTitle(F"unfiltered waveform;tim [ns]; amp [mV]")
-                            graraw.SetLineWidth(1); graraw.SetMarkerStyle(20); graraw.SetMarkerSize(0.25); graraw.SetMarkerColor(ROOT.kOrange); graraw.Draw("AP"); 
+                            graraw.SetLineWidth(1); graraw.SetMarkerStyle(20); graraw.SetMarkerSize(0.25); graraw.SetMarkerColor(ROOT.kBlue); graraw.Draw("AP"); 
                             cc.cd(1)
-                        rt = fwspline.GetX(0.9*peak) - fwspline.GetX(0.1*peak)
-                        gra.SetTitle(F"[ bl={bline:.1f} br={brms:.1f} pk={peak:.1f} ][mV], [ qq={charge:.2f} [pC] ], [ tpk={tpeak:.2f} tcf={tcf:.2f} rise={rt:.1f} ][ns];tim [ns]; amp [mV]")
-                        gra.SetLineWidth(1); gra.SetMarkerStyle(20); gra.SetMarkerSize(0.25); gra.SetMarkerColor(ROOT.kBlue); gra.Draw("AP"); 
+                            
+                        # gra.SetTitle(F"[ bl={bline:.1f} br={brms:.1f} pk={peak:.1f} ][mV], [ qq={charge:.2f} [pC] ], [ tpk={tpeak:.2f} tcf={tcf:.2f} rise={riset:.1f} ][ns];tim [ns]; amp [mV]")
+                        gra.SetTitle(F"event: {ientry}   chan: {box.outNam}{iwave};tim [ns]; amp [mV]")
+                        gra.SetLineWidth(1); gra.SetMarkerStyle(20); gra.SetMarkerSize(0.25); gra.SetMarkerColor(ROOT.kBlack); gra.Draw("AP"); 
                         fwspline.SetLineColor(ROOT.kViolet); fwspline.Draw("same")
+                        
                         for ii in [tpeak, tcf]:
                             tp = ROOT.TMarker(ii, fwspline.Eval(ii), 2)
                             tp.SetMarkerSize(3); tp.SetMarkerColor(ROOT.kRed); tp.DrawClone("same")
-                        for ii, iic, iia in zip([box.bRng,box.qRng,box.spRng], [ROOT.kOrange,ROOT.kBlue,ROOT.kGreen], [0.2, 0.4, 0.6]):
+                            
+                        for ii, iic, iia in zip([box.bRng,box.qRng,box.spRng], [ROOT.kOrange+2,ROOT.kBlue,ROOT.kGreen], [0.25*peak, 0.5*peak, 0.6*peak]):
                             for iii in range(2):
                                 vv = max(0.0, min(tpeak+ii[iii], digi.wTimSz))
-                                tt = ROOT.TLine(vv,0.1*peak,vv,0.9*peak)
+                                tt = ROOT.TLine(vv,-0.05*peak,vv,iia)
                                 tt.SetLineWidth(1); tt.SetLineStyle(1); tt.SetLineColor(iic); tt.DrawClone("same")
                             vv1, vv2 = max(0.0, tpeak+ii[0]), min(tpeak+ii[1], digi.wTimSz)
-                            aa = ROOT.TArrow(vv1, iia*peak, vv2, iia*peak, 0.01, "<>")
-                            aa.SetLineStyle(1); aa.SetLineWidth(2); aa.SetLineColor(iic); aa.DrawClone("same")
-
+                            aa = ROOT.TArrow(vv1, iia, vv2, iia, 0.01, "<>")
+                            aa.SetLineStyle(1); aa.SetLineWidth(1); aa.SetLineColor(iic); aa.DrawClone("same")
+                            
+                        pt = ROOT.TPaveText(0.7,0.65,0.95,0.97, "NB NDC ARC") 
+                        pt.SetFillColor(0)
+                        pt.SetLineColor(0)
+                        ptnams = ["bline [mV]", "brms [mV]", "peak [mV]", "charge [pC]", "timpk [ns]", "timcf [ns]", "riset [ns]"]
+                        ptvars = [bline, brms, peak, charge, tpeak, tcf, riset]
+                        for ii, iii in zip(ptnams, ptvars):
+                            pt.AddText(F"{ii}:   {iii:.2f}")
+                        pt.SetAllWith("]", "align", 22)
+                        pt.SetAllWith("]", "size", 25)
+                        pt.Draw("same")
+                        
                         cc.Write()
                         self.outFile.cd()
                         
