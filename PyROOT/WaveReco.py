@@ -1,7 +1,6 @@
 import ROOT, uproot
 import awkward as ak
 import scipy.signal
-from scipy.signal import filtfilt
 import numpy as np
 import types
 from tqdm import tqdm
@@ -19,17 +18,17 @@ class WaveReco:
     waveF = ""
     wboxes = []        
     lowPassFilter = "butt"
-    lowPassOrder = 4
+    lowPassOrder = 2
     gignoreLevel = ROOT.kFatal
     
     @staticmethod 
-    def MkBranch(tree: ROOT.TTree, varName: str, varType = 'd', varDims=None):
+    def MkBranch(tree, varName, varType = 'd', varDims=None):
         var = np.zeros(varDims if varDims != None else 1, dtype=varType)
         tree.Branch(varName, var, F"{varName}{str.join('', [F'[{ii}]' for ii in varDims]) if varDims != None else ''}/{varType.capitalize()}")
         return var      
 
     def Msg(self, msg, err=False):
-        print(F"-----> WaveReco: {'ERROR:' if err else ''}{msg}")   
+        print(F"      WaveReco: {'ERROR:' if err else ''}{msg}")   
     
     class Digi_t():
         def __init__(self, wSz = 1024, wFs = 4096, wAmpFs = 1000, tBin = 0.2, aErr = 0.15, tErr = 0.0, name = "digi", inZ = 50.0, varTyp=np.ushort):
@@ -39,7 +38,7 @@ class WaveReco:
         def compute(self):
             self.wTimSz = float(self.wSz)*self.tBin
             self.aBin = float(self.wAmpFs)/float(self.wFs)
-        def BookOutput(self, tout: ROOT.TTree):
+        def BookOutput(self, tout):
             if self.wTimeBooked: return
             self.wtime = self.tBin * np.arange(0,self.wSz,1)
             bname = self.name + "_wtim"
@@ -47,10 +46,12 @@ class WaveReco:
             
     class WaveBox_t():
 
-        def __init__(self, digi, inWvs, bRng, qRng, spRng, outNam, pkRng=None, pkCut=None, saveW=True, lowPass=None, cfScan=None, cf=0.1, gain=1.0):
+        def __init__(self, digi, inWvs, bRng, qRng, spRng, outNam, pkRng=None, pkCut=None, saveW=True, saveTemplate=False,
+                            lowPass=None, cfScan=None, cf=0.1, gain=1.0, opts=None, thr=None, thrScan=None):
 
-            self.digi,self.inWvs,self.qRng,self.bRng,self.spRng,self.spRng,self.outNam,self.pkRng,self.pkCut,self.saveW,self.lowPass,self.cfScan,self.cf,self.gain=\
-                digi,inWvs,qRng,bRng,spRng,spRng,outNam,pkRng,pkCut,saveW,lowPass,cfScan,cf,gain
+            self.digi,self.inWvs,self.qRng,self.bRng,self.spRng,self.spRng,self.outNam,self.pkRng,self.pkCut,\
+            self.saveW,self.lowPass,self.cfScan,self.cf,self.gain,self.opts,self.thr,self.thrScan,self.saveTemplate=\
+            digi,inWvs,qRng,bRng,spRng,spRng,outNam,pkRng,pkCut,saveW,lowPass,cfScan,cf,gain,opts,thr,thrScan,saveTemplate
 
             self.nChan = len(self.inWvs)
             self.sign = float(self.gain<0)
@@ -61,7 +62,10 @@ class WaveReco:
             self.spRngSam = np.array(np.array(spRng, dtype=float) / self.digi.tBin, dtype=int)
             self.specSaved = 0
 
-        def BookOutput(self, tout: ROOT.TTree):
+        def BookOutput(self, tout):
+            
+            if self.saveTemplate != None:
+                pass
             
             self.digi.BookOutput(tout)
             
@@ -70,6 +74,7 @@ class WaveReco:
             self.b_peak =   WaveReco.MkBranch(tout, self.outNam+"_peak", "d", [self.nChan])
             self.b_charge = WaveReco.MkBranch(tout, self.outNam+"_charge", "d", [self.nChan])
             self.b_timcf =  WaveReco.MkBranch(tout, self.outNam+"_timcf", "d", [self.nChan])
+            self.b_timtr =  WaveReco.MkBranch(tout, self.outNam+"_timtr", "d", [self.nChan])
             self.b_timpk =  WaveReco.MkBranch(tout, self.outNam+"_timpk", "d", [self.nChan])
             self.b_wok   =  WaveReco.MkBranch(tout, self.outNam+"_wok", "i", [self.nChan])
             
@@ -78,6 +83,9 @@ class WaveReco:
             
             if self.cfScan != None:
                 self.b_cfscan = WaveReco.MkBranch(tout, self.outNam+"_cfscan", "d", [self.nChan, len(self.cfScan)])
+            
+            if self.thrScan != None:
+                self.b_trscan = WaveReco.MkBranch(tout, self.outNam+"_trscan", "d", [self.nChan, len(self.thrScan)])
             
         def BookInput(self, tin):
             self.waveIn = []
@@ -119,11 +127,12 @@ class WaveReco:
         self.Msg("------------------------------------------------------------------------------")       
         self.Msg(F"                           --- channel map ---")
         ii: self.WaveBox_t
-        for iii, ii in enumerate(self.wboxes): self.Msg(F"group={iii} : digi={ii.digi.name} : [{ii.inWvs[0]} ... {ii.inWvs[-1]}] -> {ii.outNam}[{ii.nChan}]")
+        for iii, ii in enumerate(self.wboxes): 
+            self.Msg(F"  {iii}{' '*(5-len(str(iii)))}   {ii.digi.name} {' '*(12-len(ii.digi.name))}[{ii.inWvs[0]} ... {ii.inWvs[-1]}] {'-'*(25-len(ii.inWvs[-1])-len(ii.inWvs[0]))}->  {ii.outNam}[{ii.nChan}]")
         self.Msg(F"                         --- channel map end ---")
-        self.Msg(F"input: {self.inFileName}")
-        self.Msg(F"output: {self.outFileName}")
-        self.Msg(F"ana: {self.anaFileName}")
+        self.Msg(F"input:   {self.inFileName}")
+        self.Msg(F"output:  {self.outFileName}")
+        self.Msg(F"ana:     {self.anaFileName}")
         if (self.dryRun) : 
             self.Msg(F"end of dry run")
             self.Msg("------------------------------------------------------------------------------")
@@ -136,7 +145,7 @@ class WaveReco:
         self.entries = len(self.wboxes[0].waveIn[0])
         self.Msg(F"entries: {self.entries}")
         self.etp = min(self.entries, self.maxEvents) if self.maxEvents > 0  else self.entries
-        self.Msg(F"processing {self.etp} entries")
+        self.Msg(F"to process: {self.etp}")
         self.Msg("starting loop...") 
         prev = ROOT.gErrorIgnoreLevel
         gErrorIgnoreLevel = self.gignoreLevel
@@ -154,11 +163,10 @@ class WaveReco:
 
         savedSpecs = 0
                 
-        for ientry in tqdm(range(self.etp)):
+        for ientry in tqdm(range(self.etp), colour='green', bar_format='{desc:<5.5}{percentage:3.0f}%|{bar:45}{r_bar:10}'):
             self.b_evt[0] = ientry
             for ibox, box in enumerate(self.wboxes):
-                
-                box: self.WaveBox_t                
+                        
                 gain = box.gain
                 sign = box.sign
                 wsize = box.digi.wSz
@@ -176,7 +184,6 @@ class WaveReco:
                 else: pkstart, pkstop = 0, -1
                     
                 for iwave, win in enumerate(box.waveIn):
-                    win: np.array
                     
                     box.b_wok[iwave] = 0
                     wave = win[ientry]
@@ -209,6 +216,7 @@ class WaveReco:
                     peak = fwspline.GetMaximum(spfrom, spto)
                     tpeak = fwspline.GetMaximumX(spfrom, spto)
                     tcf = fwspline.GetX(peak*box.cf)
+                    ttr = fwspline.GetX(box.thr) if box.thr != None else -9999.99
                     
                     box.b_bline[iwave] = bline
                     box.b_brms[iwave] = brms
@@ -216,9 +224,12 @@ class WaveReco:
                     box.b_peak[iwave] = peak
                     box.b_timpk[iwave] = tpeak
                     box.b_timcf[iwave] = tcf
+                    box.b_timtr[iwave] = ttr
                     box.b_wok[iwave] = 1
+                    
                     if (box.saveW): box.b_wave[iwave][:] = wave
-                    if (box.cfScan != None): box.b_cfscan[iwave][:] = np.array([fwspline.GetX(peak*icf) for icf in box.cfScan])       
+                    if (box.cfScan != None):  box.b_cfscan[iwave][:] = np.array([fwspline.GetX(peak*icf) for icf in box.cfScan])       
+                    if (box.thrScan != None): box.b_trscan[iwave][:] = np.array([fwspline.GetX(itr) for itr in box.thrScan])       
 
                     if (box.specSaved < self.specsToSave):
                         riset = fwspline.GetX(0.9*peak) - fwspline.GetX(0.1*peak)
@@ -235,16 +246,19 @@ class WaveReco:
                             graraw.SetLineWidth(1); graraw.SetMarkerStyle(20); graraw.SetMarkerSize(0.25); graraw.SetMarkerColor(ROOT.kBlue); graraw.Draw("AP"); 
                             cc.cd(1)
                             
-                        # gra.SetTitle(F"[ bl={bline:.1f} br={brms:.1f} pk={peak:.1f} ][mV], [ qq={charge:.2f} [pC] ], [ tpk={tpeak:.2f} tcf={tcf:.2f} rise={riset:.1f} ][ns];tim [ns]; amp [mV]")
                         gra.SetTitle(F"event: {ientry}   chan: {box.outNam}{iwave};tim [ns]; amp [mV]")
                         gra.SetLineWidth(1); gra.SetMarkerStyle(20); gra.SetMarkerSize(0.25); gra.SetMarkerColor(ROOT.kBlack); gra.Draw("AP"); 
                         fwspline.SetLineColor(ROOT.kViolet); fwspline.Draw("same")
                         
-                        for ii in [tpeak, tcf]:
+                        for ii, iic in zip([tpeak, tcf], [ROOT.kRed, ROOT.kRed]):
                             tp = ROOT.TMarker(ii, fwspline.Eval(ii), 2)
-                            tp.SetMarkerSize(3); tp.SetMarkerColor(ROOT.kRed); tp.DrawClone("same")
+                            tp.SetMarkerSize(3); tp.SetMarkerColor(iic); tp.DrawClone("same")
+                        
+                        if box.thr != None: 
+                            tp = ROOT.TMarker(ttr, fwspline.Eval(ttr), 2)
+                            tp.SetMarkerSize(3); tp.SetMarkerColor(ROOT.kOrange+2); tp.DrawClone("same")
                             
-                        for ii, iic, iia in zip([box.bRng,box.qRng,box.spRng], [ROOT.kOrange+2,ROOT.kBlue,ROOT.kGreen], [0.25*peak, 0.5*peak, 0.6*peak]):
+                        for ii, iic, iia in zip([box.bRng,box.qRng,box.spRng,[-tpeak+box.pkRng[jj]*digi.wTimSz for jj in range(2)]], [ROOT.kOrange+2,ROOT.kBlue,ROOT.kGreen,ROOT.kYellow], [0.25*peak, 0.5*peak, 0.6*peak, 0.8*peak]):
                             for iii in range(2):
                                 vv = max(0.0, min(tpeak+ii[iii], digi.wTimSz))
                                 tt = ROOT.TLine(vv,-0.05*peak,vv,iia)
@@ -256,8 +270,8 @@ class WaveReco:
                         pt = ROOT.TPaveText(0.7,0.65,0.95,0.97, "NB NDC ARC") 
                         pt.SetFillColor(0)
                         pt.SetLineColor(0)
-                        ptnams = ["bline [mV]", "brms [mV]", "peak [mV]", "charge [pC]", "timpk [ns]", "timcf [ns]", "riset [ns]"]
-                        ptvars = [bline, brms, peak, charge, tpeak, tcf, riset]
+                        ptnams = ["bline [mV]", "brms [mV]", "peak [mV]", "charge [pC]", "timpk [ns]", "timcf [ns]", "timtr [ns]", "riset [ns]"]
+                        ptvars = [bline, brms, peak, charge, tpeak, tcf, ttr, riset]
                         for ii, iii in zip(ptnams, ptvars):
                             pt.AddText(F"{ii}:   {iii:.2f}")
                         pt.SetAllWith("]", "align", 22)
