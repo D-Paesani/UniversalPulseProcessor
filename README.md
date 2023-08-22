@@ -17,3 +17,4 @@ Versatile waveform and pulse processing for digitisers.
 
 
 ![Alt text](Varie/spec.png)
+![Alt text](Varie/spec1.png)
