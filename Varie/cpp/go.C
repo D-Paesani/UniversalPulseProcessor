@@ -21,7 +21,7 @@ using namespace std;
 void go(int run = _run) {
 
     // int run = _run;
-    TString runName = Form(_runName, run);
+    TString runName = Form(_runName, _run);
 
     typedef Waves::WaveBox wbox_t;
     WaveProcessor wp;
@@ -49,7 +49,7 @@ void go(int run = _run) {
         .digi = &digi_5gsps,
         .inFormat = "wave%d", .outFormat = "ciax%d", .inChan = {9,10}, .outChan = {0,1},
         .pkStart=0.05, .pkStop=0.5, .bStart=-19.0, .bStop=-9, .qStart=-8.5, .qStop=12.5, .spStart=-12.0, .spStop=6.0, 
-        .pkCutMin = -5.0, .cf = 0.08, .invert = 1
+        .pkCutMin = 50.0, .cf = 0.08, .invert = 1
     };
 
     wbox_t w_series = {   
