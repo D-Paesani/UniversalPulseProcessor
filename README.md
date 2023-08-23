@@ -16,6 +16,6 @@ Versatile waveform and pulse processing for digitisers.
 - support for parallelisation using HTCondor
 
 
-![Alt text](spec.png)
+![Alt text](Varie/spec.png)
 
-![Alt text](spec1.png)
+![Alt text](Varie/spec1.png)
